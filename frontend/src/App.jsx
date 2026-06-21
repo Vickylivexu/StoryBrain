@@ -1,58 +1,98 @@
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
-import KnowledgeGraph from './components/KnowledgeGraph'
 
 function App() {
   const [topic, setTopic] = useState('')
+  const [category, setCategory] = useState('general') // general / major
   const [loading, setLoading] = useState(false)
   const [story, setStory] = useState(null)
   const [error, setError] = useState('')
   const [availableTopics, setAvailableTopics] = useState([])
   const [view, setView] = useState('input')
-  const [exporting, setExporting] = useState(false)
+  const [exportingMD, setExportingMD] = useState(false)
+  const [exportingPDF, setExportingPDF] = useState(false)
 
   // 动态生成状态
   const [generating, setGenerating] = useState(false)
   const [generateStage, setGenerateStage] = useState(0)
   const [generateMessage, setGenerateMessage] = useState('')
 
+  // 提取难度等级（只取 "——" 之前的部分）
+  const getDifficultyLabel = (difficulty) => {
+    if (!difficulty) return null
+    const level = String(difficulty).split(' —— ')[0].trim()
+    return level
+  }
+
+  // 通用文件下载逻辑
+  const downloadFile = (blob, contentDisposition, defaultFilename) => {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    let filename = defaultFilename
+    if (contentDisposition) {
+      const matches = contentDisposition.match(/filename\*?=(?:UTF-8'')?"?([^;"]+)"?/i)
+      if (matches && matches[1]) {
+        filename = decodeURIComponent(matches[1])
+      }
+    }
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  }
+
   // 导出 Markdown 文件
   const handleExportMarkdown = async () => {
     if (!story || !story.slug) return
-    setExporting(true)
+    setExportingMD(true)
     try {
       const response = await axios.post('/api/export-markdown', {
         slug: story.slug,
         topic: story.topic
       }, {
-        responseType: 'blob'
+        responseType: 'arraybuffer',
+        transformResponse: [(data) => data]
       })
-
-      // 创建下载链接
-      const url = window.URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = url
-
-      // 从 Content-Disposition 中获取文件名（或使用默认）
-      const contentDisposition = response.headers['content-disposition']
-      let filename = `${story.slug || story.topic}-故事脑.md`
-      if (contentDisposition) {
-        const matches = contentDisposition.match(/filename\*?=(?:UTF-8'')?"?([^;"]+)"?/i)
-        if (matches && matches[1]) {
-          filename = decodeURIComponent(matches[1])
-        }
-      }
-
-      link.setAttribute('download', filename)
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
+      const blob = new Blob([response.data], { type: 'text/markdown;charset=utf-8' })
+      const filename = `${story.slug || story.topic}-故事脑.md`
+      downloadFile(blob, response.headers['content-disposition'], filename)
     } catch (err) {
       console.error('导出 Markdown 失败:', err)
       alert('导出失败，请重试')
     } finally {
-      setExporting(false)
+      setExportingMD(false)
+    }
+  }
+
+  // 导出 PDF 文件
+  const handleExportPDF = async () => {
+    if (!story || !story.slug) return
+    setExportingPDF(true)
+    try {
+      const response = await axios.post('/api/export-pdf', {
+        slug: story.slug,
+        topic: story.topic
+      }, {
+        responseType: 'arraybuffer',
+        transformResponse: [(data) => data],
+        timeout: 120000 // PDF 渲染较慢，给予 2 分钟超时
+      })
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const filename = `${story.slug || story.topic}-故事脑.pdf`
+      downloadFile(blob, response.headers['content-disposition'], filename)
+    } catch (err) {
+      console.error('导出 PDF 失败:', err)
+      let msg = '导出失败，请重试'
+      if (err.response && err.response.data && err.response.data.error) {
+        msg = err.response.data.error
+      } else if (err.message) {
+        msg = '导出失败：' + err.message
+      }
+      alert(msg)
+    } finally {
+      setExportingPDF(false)
     }
   }
 
@@ -103,7 +143,8 @@ function App() {
     try {
       const response = await axios.post('/api/generate-story', {
         topic: inputTopic,
-        slug: slug
+        slug: slug,
+        category: category
       }, {
         timeout: 180000 // 3分钟超时，给AI足够的时间
       })
@@ -211,6 +252,29 @@ function App() {
                     输入一个概念或主题，让故事帮你理解它
                   </p>
                 </div>
+                {/* 分类选择 */}
+                <div className="flex items-center justify-center gap-3 mb-6">
+                  <button
+                    onClick={() => setCategory('general')}
+                    className={`px-6 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+                      category === 'general'
+                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    🌐 通用
+                  </button>
+                  <button
+                    onClick={() => setCategory('major')}
+                    className={`px-6 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+                      category === 'major'
+                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    🎓 大学专业
+                  </button>
+                </div>
                 <div className="flex gap-3">
                   <input
                     type="text"
@@ -263,7 +327,7 @@ function App() {
                         {/* 分类标签 */}
                         {t.category && (
                           <p className="text-xs text-slate-400 mb-3">
-                            📚 {t.category} {t.difficulty ? `· ${t.difficulty}` : ''}
+                            📚 {t.category} {t.difficulty ? `· ${getDifficultyLabel(t.difficulty)}` : ''}
                           </p>
                         )}
                         <div className="flex gap-2 flex-wrap">
@@ -335,7 +399,7 @@ function App() {
                   </div>
                   {story.tags && (
                     <p className="text-sm text-slate-500">
-                      {story.tags.category} · {story.tags.subCategory} · 难度：{story.tags.difficulty}
+                      {story.tags.category} · {story.tags.subCategory} · 难度：{getDifficultyLabel(story.tags.difficulty)}
                     </p>
                   )}
                   {story.quality && story.quality.warnings && story.quality.warnings.length > 0 && (
@@ -351,14 +415,24 @@ function App() {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={handleExportMarkdown}
-                  disabled={exporting || !story.slug}
-                  className="flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl font-semibold text-sm shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                >
-                  <span className="text-lg">📥</span>
-                  <span>{exporting ? '导出中...' : '导出 Markdown (Obsidian 格式)'}</span>
-                </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={handleExportMarkdown}
+                    disabled={exportingMD || !story.slug}
+                    className="flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl font-semibold text-sm shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    <span className="text-lg">📝</span>
+                    <span>{exportingMD ? '导出中...' : '导出 Markdown'}</span>
+                  </button>
+                  <button
+                    onClick={handleExportPDF}
+                    disabled={exportingPDF || !story.slug}
+                    className="flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600 text-white rounded-xl font-semibold text-sm shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    <span className="text-lg">📄</span>
+                    <span>{exportingPDF ? '导出中...' : '导出 PDF'}</span>
+                  </button>
+                </div>
               </div>
               {story.tags && (
                 <div className="space-y-3 pt-3 border-t border-slate-100">
@@ -399,6 +473,36 @@ function App() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* 学科分类信息 - 大学专业模式 */}
+              {story.majorInfo && (
+                <div className="mt-6 p-6 bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 rounded-2xl border border-amber-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2">
+                    <span>🎓</span>
+                    学科分类信息
+                  </h3>
+                  <div className="flex flex-wrap gap-3">
+                    {story.majorInfo.subjectCategory && (
+                      <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 px-3 py-1.5 rounded-xl border border-amber-200 text-xs font-medium shadow-sm">
+                        <span>📚</span>
+                        <span>{story.majorInfo.subjectCategory}</span>
+                      </span>
+                    )}
+                    {story.majorInfo.subCategory && (
+                      <span className="inline-flex items-center gap-1.5 bg-orange-100 text-orange-800 px-3 py-1.5 rounded-xl border border-orange-200 text-xs font-medium shadow-sm">
+                        <span>🔬</span>
+                        <span>{story.majorInfo.subCategory}</span>
+                      </span>
+                    )}
+                    {story.majorInfo.difficulty && (
+                      <span className="inline-flex items-center gap-1.5 bg-purple-100 text-purple-800 px-3 py-1.5 rounded-xl border border-purple-200 text-xs font-medium shadow-sm">
+                        <span>⚖️</span>
+                        <span>{getDifficultyLabel(story.majorInfo.difficulty)}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -563,22 +667,6 @@ function App() {
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
-            )}
-
-            {/* 知识关系图 */}
-            {story.knowledgeGraph && story.knowledgeGraph.nodes && story.knowledgeGraph.nodes.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-                <div className="px-8 py-5 border-b bg-gradient-to-r from-cyan-50 to-blue-50 border-cyan-200">
-                  <h3 className="text-lg font-bold text-cyan-700 flex items-center gap-2">
-                    🕸️ 知识关系图
-                  </h3>
-                </div>
-                <div className="p-8">
-                  <div className="h-96 bg-gradient-to-br from-slate-50 to-indigo-50/30 rounded-xl border border-slate-200 overflow-hidden">
-                    <KnowledgeGraph data={story.knowledgeGraph} />
-                  </div>
                 </div>
               </div>
             )}
