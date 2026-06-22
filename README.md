@@ -38,11 +38,13 @@
 ```
 StoryBrain/
 ├── SKILL.md              # Skill 入口文档（TRAE 识别）
-├── data/                 # 预生成研究数据
+├── data/                 # 预生成研究数据（JSON 格式）
 │   ├── blockchain.json
 │   ├── 熵增定律.json
 │   ├── 社会学.json
 │   └── ...
+├── exports/              # 已导出的 Markdown 研究报告
+│   └── 计算机科学与技术.md
 ├── README.md
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
@@ -64,6 +66,14 @@ StoryBrain/
 ## 扩展主题
 
 在 `data/` 目录新增 `{主题名}.json` 文件，遵循 SKILL.md 中的 JSON 格式规范，系统自动识别。
+
+## 已导出研究报告
+
+用户导出的 Markdown 研究报告存放在 `exports/` 目录，下次研究同一主题时会自动询问是否返回现有文件。
+
+| 主题 | 导出时间 |
+|------|---------|
+| 计算机科学与技术 | 2026-06-23 |
 
 ## 技术栈
 
